@@ -16,6 +16,7 @@ use App\Support\CodeGenerator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class ConsumerController extends Controller
 {
@@ -80,14 +81,24 @@ class ConsumerController extends Controller
             ->where('code', $code)
             ->firstOrFail();
 
+        $sourceBatch = $product->sources->first();
+
         return ApiResponse::success([
-            'product' => [
-                'code' => $product->code,
-                'name' => $product->name,
-                'source_batch_code' => $product->sources->first()?->source_code_snapshot,
-                'source_variety' => $product->sources->first()?->batch?->variety,
-                'source_grade' => $product->sources->first()?->batch?->grade,
-            ],
+            'product' => array_merge(
+                ContractFormatter::product($product),
+                [
+                    'source_batch_code' => $sourceBatch?->source_code_snapshot,
+                    'source_variety' => $sourceBatch?->batch?->variety,
+                    'source_grade' => $sourceBatch?->batch?->grade,
+                    'source_origin_farm' => $sourceBatch?->batch?->farm_name_snapshot,
+                    'source_harvest_date' => $sourceBatch?->batch?->harvest_date?->toDateString(),
+                    'source_harvest_method' => $sourceBatch?->batch?->harvest_method,
+                    'source_maturity_level' => $sourceBatch?->batch?->maturity_level,
+                    'source_shelf_life_estimate' => $sourceBatch?->batch?->shelf_life_estimate,
+                    'source_verified_at' => $sourceBatch?->batch?->verified_at?->toISOString(),
+                    'source_quality_notes' => $sourceBatch?->batch?->quality_notes,
+                ],
+            ),
         ]);
     }
 
@@ -137,6 +148,12 @@ class ConsumerController extends Controller
 
         $product = UmkmProduct::query()->whereKey($productId)->firstOrFail();
 
+        if ($product->status !== ProductStatus::Aktif->value) {
+            return ApiResponse::validation([
+                'product_id' => ['Produk harus berstatus aktif untuk dibeli.'],
+            ]);
+        }
+
         if (($product->stock_qty ?? 0) < ($data['quantity'] ?? 0)) {
             return ApiResponse::validation([
                 'quantity' => ['Stok produk tidak mencukupi.'],
@@ -166,6 +183,9 @@ class ConsumerController extends Controller
 
             $product->forceFill([
                 'stock_qty' => $product->stock_qty - $data['quantity'],
+                'status' => $product->stock_qty - $data['quantity'] <= 0
+                    ? ProductStatus::Habis->value
+                    : $product->status,
             ])->save();
 
             return $transaction;

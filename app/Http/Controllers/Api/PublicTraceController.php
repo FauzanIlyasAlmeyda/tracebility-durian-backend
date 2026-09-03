@@ -23,14 +23,25 @@ class PublicTraceController extends Controller
             ->with('shipment')
             ->where('harvest_batch_id', $batch->id)
             ->get()
-            ->map(function (CollectorShipmentSource $source): array {
+            ->groupBy(fn (CollectorShipmentSource $source): string => (string) ($source->shipment?->code ?? $source->collector_shipment_id))
+            ->map(function ($sources): array {
+                /** @var CollectorShipmentSource $firstSource */
+                $firstSource = $sources->first();
+                $shipment = $firstSource?->shipment;
+
                 return [
-                    'code' => $source->shipment?->code,
-                    'status' => $source->shipment?->status,
-                    'destination_type' => $source->shipment?->destination_type,
-                    'packaged_at' => $source->shipment?->packaged_at?->toISOString(),
-                    'sent_at' => $source->shipment?->sent_at?->toISOString(),
-                    'completed_at' => $source->shipment?->completed_at?->toISOString(),
+                    'code' => $shipment?->code,
+                    'status' => $shipment?->status,
+                    'destination_type' => $shipment?->destination_type,
+                    'source_batch_codes' => $sources
+                        ->pluck('source_code_snapshot')
+                        ->filter()
+                        ->unique()
+                        ->values()
+                        ->all(),
+                    'packaged_at' => $shipment?->packaged_at?->toISOString(),
+                    'sent_at' => $shipment?->sent_at?->toISOString(),
+                    'completed_at' => $shipment?->completed_at?->toISOString(),
                 ];
             })
             ->values()
@@ -42,27 +53,45 @@ class PublicTraceController extends Controller
 
         $trace['batch'] = ContractFormatter::batch($batch);
         $trace['events'] = ContractFormatter::batchTimeline($batch);
-        $trace['source_batches'] = UmkmProductSource::query()
-            ->where('harvest_batch_id', $batch->id)
-            ->pluck('source_code_snapshot')
-            ->values()
-            ->all();
-        $trace['downstream_products'] = UmkmProductSource::query()
+        $trace['source_batches'] = [];
+        $trace['downstream_products'] = $this->downstreamProducts($batch->id);
+        $trace['shipment_history'] = $shipmentHistory;
+
+        return ApiResponse::success($trace);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function downstreamProducts(int $batchId): array
+    {
+        return UmkmProductSource::query()
             ->with('product')
-            ->where('harvest_batch_id', $batch->id)
+            ->where('harvest_batch_id', $batchId)
             ->latest()
             ->get()
-            ->map(function (UmkmProductSource $source): array {
+            ->groupBy('umkm_product_id')
+            ->map(function ($sources): array {
+                /** @var UmkmProductSource $firstSource */
+                $firstSource = $sources->first();
+                $product = $firstSource?->product;
+
                 return [
-                    'code' => $source->product?->code,
-                    'name' => $source->product?->name,
-                    'status' => $source->product?->status,
+                    'code' => $product?->code,
+                    'name' => $product?->name,
+                    'status' => $product?->status,
+                    'category' => $product?->category,
+                    'price_label' => ContractFormatter::moneyLabel($product?->price ?? 0),
+                    'stock_label' => 'Stok ' . (int) ($product?->stock_qty ?? 0) . ' paket',
+                    'source_batch_codes' => $sources
+                        ->pluck('source_code_snapshot')
+                        ->filter()
+                        ->unique()
+                        ->values()
+                        ->all(),
                 ];
             })
             ->values()
             ->all();
-        $trace['shipment_history'] = $shipmentHistory;
-
-        return ApiResponse::success($trace);
     }
 }

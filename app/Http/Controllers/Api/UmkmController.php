@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Enums\OrderStatus;
+use App\Enums\HarvestBatchStatus;
 use App\Enums\ProductStatus;
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
@@ -100,6 +101,26 @@ class UmkmController extends Controller
             'source_codes.*' => ['string', 'exists:harvest_batches,code'],
         ]);
 
+        $sourceBatches = HarvestBatch::query()
+            ->with('farmer')
+            ->whereIn('code', $data['source_codes'] ?? [])
+            ->get()
+            ->keyBy('code');
+
+        if ($sourceBatches->isNotEmpty()) {
+            $invalidSourceCodes = $sourceBatches
+                ->filter(fn (HarvestBatch $batch): bool => $batch->status !== HarvestBatchStatus::ReceivedByUmkm->value)
+                ->keys()
+                ->values()
+                ->all();
+
+            if ($invalidSourceCodes !== []) {
+                return ApiResponse::validation([
+                    'source_codes' => ['Source batch harus sudah berstatus receivedByUmkm sebelum dipakai membuat produk.'],
+                ]);
+            }
+        }
+
         $product = DB::transaction(function () use ($user, $data) {
             $price = $this->resolvePrice($data);
             $stockQty = $this->resolveStock($data);
@@ -135,7 +156,12 @@ class UmkmController extends Controller
                     'fruit_count' => $batch->fruit_count,
                 ]);
 
+                $batch->forceFill([
+                    'status' => HarvestBatchStatus::Processed->value,
+                ])->save();
+
                 Traceability::recordEvent($batch, 'Source batch dipakai untuk produk UMKM', $user, [
+                    'status' => HarvestBatchStatus::Processed->value,
                     'product_code' => $product->code,
                 ]);
             }
@@ -192,6 +218,12 @@ class UmkmController extends Controller
             ->where('umkm_user_id', $user->id)
             ->whereKey($productId)
             ->firstOrFail();
+
+        if ($product->status !== ProductStatus::Aktif->value) {
+            return ApiResponse::validation([
+                'product_id' => ['Produk harus berstatus aktif untuk dibuatkan order.'],
+            ]);
+        }
 
         if (($product->stock_qty ?? 0) < ($data['quantity'] ?? 0)) {
             return ApiResponse::validation([

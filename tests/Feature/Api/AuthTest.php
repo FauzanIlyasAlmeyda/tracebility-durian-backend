@@ -27,6 +27,7 @@ class AuthTest extends TestCase
         $response
             ->assertCreated()
             ->assertJsonPath('success', true)
+            ->assertJsonPath('data.dashboard', 'petani')
             ->assertJsonStructure([
                 'success',
                 'message',
@@ -66,6 +67,28 @@ class AuthTest extends TestCase
             ->assertJsonPath('data.user.role', 'distributor');
     }
 
+    public function test_user_can_login_using_username_identifier(): void
+    {
+        User::factory()->create([
+            'email' => 'andi@example.com',
+            'username' => 'andi.pengepul',
+            'role' => 'pengepul',
+            'password' => 'password123',
+        ]);
+
+        $response = $this->postJson('/api/login', [
+            'identifier' => 'andi.pengepul',
+            'password' => 'password123',
+            'role' => 'pengepul',
+        ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.dashboard', 'pengepul')
+            ->assertJsonPath('data.user.username', 'andi.pengepul');
+    }
+
     public function test_authenticated_user_can_fetch_profile_and_logout(): void
     {
         $user = User::factory()->create([
@@ -83,7 +106,8 @@ class AuthTest extends TestCase
         $meResponse
             ->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.user.email', 'andi@example.com');
+            ->assertJsonPath('data.user.email', 'andi@example.com')
+            ->assertJsonPath('data.dashboard', 'pengepul');
 
         $logoutResponse = $this->withToken($token->plainTextToken)->postJson('/api/logout');
 

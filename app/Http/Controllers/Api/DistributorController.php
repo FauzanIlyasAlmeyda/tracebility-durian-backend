@@ -113,6 +113,19 @@ class DistributorController extends Controller
             ->where('code', $code)
             ->firstOrFail();
 
+        if ($shipment->status !== ShipmentStatus::Sent->value) {
+            return ApiResponse::error('Receipt hanya bisa dibuat saat shipment berstatus sent', 422);
+        }
+
+        $existingReceipt = DistributorReceipt::query()
+            ->where('collector_shipment_id', $shipment->id)
+            ->latest()
+            ->first();
+
+        if ($existingReceipt) {
+            return ApiResponse::error('Shipment ini sudah memiliki receipt', 422);
+        }
+
         $data = $request->validate([
             'received_weight_kg' => ['required', 'numeric', 'min:0'],
             'received_fruit_count' => ['required', 'integer', 'min:0'],

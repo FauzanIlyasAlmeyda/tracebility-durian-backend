@@ -59,7 +59,10 @@ class FarmerController extends Controller
             ],
         );
 
-        return ApiResponse::success($profile, 'Profil petani diperbarui');
+        return ApiResponse::success([
+            'user' => $user->refresh(),
+            'profile' => $profile,
+        ], 'Profil petani diperbarui');
     }
 
     public function farms(Request $request): JsonResponse

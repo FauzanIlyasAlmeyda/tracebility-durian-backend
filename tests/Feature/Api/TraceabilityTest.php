@@ -58,6 +58,19 @@ class TraceabilityTest extends TestCase
             ->assertJsonPath('data.blockchain.network', 'dummy-ledger')
             ->assertJsonPath('data.blockchain.status', 'simulated')
             ->assertJsonPath('data.blockchain.event_count', 1)
-            ->assertJsonPath('data.batch.code', 'DRN-2026-000001');
+            ->assertJsonPath('data.batch.code', 'DRN-2026-000001')
+            ->assertJsonStructure([
+                'success',
+                'message',
+                'data' => [
+                    'batch',
+                    'events',
+                    'source_batches',
+                    'downstream_products',
+                    'shipment_history',
+                    'public_url',
+                    'blockchain',
+                ],
+            ]);
     }
 }

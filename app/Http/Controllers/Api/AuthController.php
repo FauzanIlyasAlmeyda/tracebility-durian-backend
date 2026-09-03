@@ -44,11 +44,12 @@ class AuthController extends Controller
 
         $token = $user->createToken('flutter')->plainTextToken;
 
-        return ApiResponse::created([
-            'user' => new UserResource($user),
-            'token' => $token,
-            'dashboard' => $user->role,
-        ], 'Registrasi berhasil');
+        return $this->authResponse(
+            $user,
+            $token,
+            'Registrasi berhasil',
+            201
+        );
     }
 
     /**
@@ -92,11 +93,7 @@ class AuthController extends Controller
 
         $token = $user->createToken('flutter')->plainTextToken;
 
-        return ApiResponse::success([
-            'user' => new UserResource($user),
-            'token' => $token,
-            'dashboard' => $user->role,
-        ], 'Login berhasil');
+        return $this->authResponse($user, $token, 'Login berhasil');
     }
 
     /**
@@ -106,6 +103,7 @@ class AuthController extends Controller
     {
         return ApiResponse::success([
             'user' => new UserResource($request->user()),
+            'dashboard' => $this->dashboardForRole($request->user()->role),
         ], 'Session aktif');
     }
 
@@ -117,6 +115,27 @@ class AuthController extends Controller
         $request->user()->currentAccessToken()?->delete();
 
         return ApiResponse::success(null, 'Logout berhasil');
+    }
+
+    private function authResponse(User $user, string $token, string $message, int $status = 200)
+    {
+        return ApiResponse::success([
+            'user' => new UserResource($user),
+            'token' => $token,
+            'dashboard' => $this->dashboardForRole($user->role),
+        ], $message, $status);
+    }
+
+    private function dashboardForRole(string $role): string
+    {
+        return match ($role) {
+            UserRole::Petani->value,
+            UserRole::Pengepul->value,
+            UserRole::Distributor->value,
+            UserRole::Umkm->value,
+            UserRole::Konsumen->value => $role,
+            default => $role,
+        };
     }
 
 }

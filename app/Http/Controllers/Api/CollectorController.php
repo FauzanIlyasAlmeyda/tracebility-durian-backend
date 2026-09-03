@@ -57,7 +57,10 @@ class CollectorController extends Controller
             'business_name' => $data['business_name'] ?? $user->full_name,
         ]);
 
-        return ApiResponse::success($profile, 'Profil pengepul diperbarui');
+        return ApiResponse::success([
+            'user' => $user->refresh(),
+            'profile' => $profile,
+        ], 'Profil pengepul diperbarui');
     }
 
     public function stock(Request $request): JsonResponse
@@ -131,21 +134,39 @@ class CollectorController extends Controller
         $data = $request->validate([
             'destination_type' => ['required', Rule::in(ShipmentDestination::values())],
             'source_batch_codes' => ['nullable', 'array', 'min:1'],
+            'source_batch_codes.*' => ['distinct'],
             'source_batch_codes.*' => ['string', 'exists:harvest_batches,code'],
             'batch_codes' => ['nullable', 'array', 'min:1'],
+            'batch_codes.*' => ['distinct'],
             'batch_codes.*' => ['string', 'exists:harvest_batches,code'],
             'packaged_at' => ['nullable', 'date'],
             'warehouse_note' => ['nullable', 'string'],
         ]);
 
+        $sourceCodes = array_values(array_unique($data['source_batch_codes'] ?? $data['batch_codes'] ?? []));
+
         $batches = HarvestBatch::query()
-            ->whereIn('code', $data['source_batch_codes'] ?? $data['batch_codes'] ?? [])
+            ->whereIn('code', $sourceCodes)
             ->get()
             ->keyBy('code');
 
         if ($batches->isEmpty()) {
             return ApiResponse::validation([
                 'source_batch_codes' => ['Minimal satu batch harus dipilih.'],
+            ]);
+        }
+
+        $invalidSourceCodes = $batches
+            ->filter(fn (HarvestBatch $batch): bool => $batch->status !== HarvestBatchStatus::VerifiedByCollector->value)
+            ->keys()
+            ->values()
+            ->all();
+
+        if ($invalidSourceCodes !== []) {
+            return ApiResponse::validation([
+                'source_batch_codes' => [
+                    'Batch hanya bisa masuk shipment jika sudah diverifikasi pengepul.',
+                ],
             ]);
         }
 
@@ -195,6 +216,7 @@ class CollectorController extends Controller
         return ApiResponse::created([
             'code' => $shipment->code,
             'status' => $shipment->status,
+            'shipment' => ContractFormatter::shipment($shipment->load('sources')),
         ], 'Shipment berhasil dibuat');
     }
 
@@ -231,6 +253,7 @@ class CollectorController extends Controller
             'code' => $shipment->code,
             'status' => $shipment->status,
             'sent_at' => $shipment->sent_at?->toISOString(),
+            'shipment' => ContractFormatter::shipment($shipment->load('sources')),
         ], 'Shipment terkirim');
     }
 
@@ -275,6 +298,7 @@ class CollectorController extends Controller
             'code' => $shipment->code,
             'status' => $shipment->status,
             'completed_at' => $shipment->completed_at?->toISOString(),
+            'shipment' => ContractFormatter::shipment($shipment->load('sources')),
         ], 'Shipment selesai');
     }
 
@@ -287,16 +311,38 @@ class CollectorController extends Controller
             ->where('code', $code)
             ->firstOrFail();
 
+        if ($batch->status !== HarvestBatchStatus::Created->value) {
+            return ApiResponse::error('Batch hanya bisa diverifikasi saat status created', 422);
+        }
+
         $data = $request->validate([
             'received_quantity_kg' => ['required', 'numeric', 'min:0'],
             'received_fruit_count' => ['required', 'integer', 'min:0'],
-            'grade_breakdown' => ['nullable', 'array'],
+            'grade_breakdown' => ['nullable', 'array', 'min:1'],
             'grade_breakdown.*.grade' => ['required_with:grade_breakdown', 'string', 'max:50'],
             'grade_breakdown.*.weight_kg' => ['required_with:grade_breakdown', 'numeric', 'min:0'],
             'grade_breakdown.*.fruit_count' => ['required_with:grade_breakdown', 'integer', 'min:0'],
             'quality_notes' => ['nullable', 'string'],
             'verified_by' => ['nullable', 'string', 'max:150'],
         ]);
+
+        $breakdowns = collect($data['grade_breakdown'] ?? []);
+        $weightTotal = (float) $breakdowns->sum('weight_kg');
+        $fruitTotal = (int) $breakdowns->sum('fruit_count');
+        $receivedWeight = (float) $data['received_quantity_kg'];
+        $receivedFruit = (int) $data['received_fruit_count'];
+
+        if ($breakdowns->isNotEmpty() && abs($weightTotal - $receivedWeight) > 0.01) {
+            return ApiResponse::validation([
+                'grade_breakdown' => ['Total weight grade breakdown harus sama dengan received_quantity_kg.'],
+            ]);
+        }
+
+        if ($breakdowns->isNotEmpty() && $fruitTotal !== $receivedFruit) {
+            return ApiResponse::validation([
+                'grade_breakdown' => ['Total fruit count grade breakdown harus sama dengan received_fruit_count.'],
+            ]);
+        }
 
         DB::transaction(function () use ($batch, $data, $user): void {
             $batch->forceFill([
@@ -328,6 +374,7 @@ class CollectorController extends Controller
         return ApiResponse::success([
             'code' => $batch->code,
             'status' => HarvestBatchStatus::VerifiedByCollector->value,
+            'batch' => ContractFormatter::batch($batch->load('gradeBreakdowns')),
         ], 'Batch terverifikasi');
     }
 
@@ -339,6 +386,10 @@ class CollectorController extends Controller
         $batch = HarvestBatch::query()
             ->where('code', $code)
             ->firstOrFail();
+
+        if ($batch->status !== HarvestBatchStatus::Created->value) {
+            return ApiResponse::error('Batch hanya bisa ditolak saat status created', 422);
+        }
 
         $data = $request->validate([
             'reason' => ['required', 'string'],
@@ -360,6 +411,7 @@ class CollectorController extends Controller
         return ApiResponse::success([
             'code' => $batch->code,
             'status' => $batch->status,
+            'batch' => ContractFormatter::batch($batch),
         ], 'Batch ditolak');
     }
 
