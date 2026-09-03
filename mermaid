@@ -1,0 +1,198 @@
+%%{init: {"theme":"base","themeVariables":{"fontSize":"12px","diagramPadding":6}}}%%
+classDiagram
+direction TB
+
+%% Data layer
+class User {
+    +id: bigint
+    +full_name: string
+    +email: string
+    +role: string
+    +is_active: bool
+    +password: string
+}
+class FarmerProfile {
+    +id: bigint
+    +user_id: bigint
+    +full_name: string
+    +location: string
+    +contact: string
+}
+class CollectorProfile {
+    +id: bigint
+    +user_id: bigint
+    +business_name: string
+    +address: string
+    +contact: string
+}
+class DistributorProfile {
+    +id: bigint
+    +user_id: bigint
+    +business_name: string
+    +address: string
+    +contact: string
+}
+class UmkmProfile {
+    +id: bigint
+    +user_id: bigint
+    +name: string
+    +owner_name: string
+    +contact: string
+}
+class ConsumerProfile {
+    +id: bigint
+    +user_id: bigint
+    +display_name: string
+    +address: string
+    +phone: string
+}
+class Farm {
+    +id: bigint
+    +farmer_user_id: bigint
+    +name: string
+    +city: string
+    +address: string
+}
+class HarvestBatch {
+    +id: bigint
+    +code: string
+    +farm_id: bigint
+    +quantity_kg: decimal
+    +status: string
+}
+class HarvestBatchEvent {
+    +id: bigint
+    +title: string
+    +actor_user_id: bigint
+    +event_at: datetime
+    +ledger_hash: string
+}
+class HarvestBatchGradeBreakdown {
+    +id: bigint
+    +harvest_batch_id: bigint
+    +grade_label: string
+    +weight_kg: decimal
+    +fruit_count: int
+}
+class CollectorShipment {
+    +id: bigint
+    +code: string
+    +collector_user_id: bigint
+    +destination_type: string
+    +status: string
+}
+class CollectorShipmentSource {
+    +id: bigint
+    +collector_shipment_id: bigint
+    +harvest_batch_id: bigint
+    +source_code_snapshot: string
+    +source_weight_kg: decimal
+}
+class DistributorReceipt {
+    +id: bigint
+    +code: string
+    +collector_shipment_id: bigint
+    +received_weight_kg: decimal
+    +received_at: datetime
+}
+class UmkmProduct {
+    +id: bigint
+    +code: string
+    +name: string
+    +price: decimal
+    +status: string
+}
+class UmkmProductSource {
+    +id: bigint
+    +umkm_product_id: bigint
+    +harvest_batch_id: bigint
+    +source_code_snapshot: string
+    +weight_kg: decimal
+}
+class UmkmOrder {
+    +id: bigint
+    +code: string
+    +buyer_name: string
+    +quantity: int
+    +status: string
+}
+class ConsumerTransaction {
+    +id: bigint
+    +code: string
+    +quantity: int
+    +payment_status: string
+    +status: string
+}
+%% Service/helper layer
+class ApiResponse {
+    +success()
+    +created()
+    +error()
+    +validation()
+}
+
+class ContractFormatter {
+    +user()
+    +batch()
+    +shipment()
+    +product()
+    +transaction()
+}
+
+class DummyBlockchainLedger {
+    +proof()
+    +sync()
+    +prepareEvent()
+    +eventProof()
+}
+
+class CodeGenerator {
+    +batch()
+    +shipment()
+    +receipt()
+    +transaction()
+}
+
+class Traceability {
+    +recordEvent()
+}
+User "1" --> "0..1" FarmerProfile : memiliki
+User "1" --> "0..1" CollectorProfile : memiliki
+User "1" --> "0..1" DistributorProfile : memiliki
+User "1" --> "0..1" UmkmProfile : memiliki
+User "1" --> "0..1" ConsumerProfile : memiliki
+
+User "1" --> "*" Farm : mengelola
+User "1" --> "*" HarvestBatch : melakukan panen
+
+Farm "1" --> "*" HarvestBatch : menghasilkan
+
+HarvestBatch "1" --> "*" HarvestBatchEvent : memiliki riwayat
+HarvestBatch "1" --> "*" HarvestBatchGradeBreakdown : memiliki grade
+
+User "1" --> "*" CollectorShipment : membuat
+CollectorShipment "1" --> "*" CollectorShipmentSource : terdiri dari
+CollectorShipmentSource "*" --> "1" HarvestBatch : mengambil dari
+
+User "1" --> "*" DistributorReceipt : melakukan penerimaan
+DistributorReceipt "1" --> "1" CollectorShipment : menerima
+
+User "1" --> "*" UmkmProduct : mengelola
+UmkmProduct "1" --> "*" UmkmProductSource : menggunakan
+UmkmProductSource "*" --> "1" HarvestBatch : berasal dari
+
+UmkmProduct "1" --> "*" UmkmOrder : memiliki pesanan
+UmkmProduct "1" --> "*" ConsumerTransaction : memiliki transaksi
+
+ConsumerTransaction "*" --> "1" User : dilakukan oleh
+ContractFormatter ..> HarvestBatch : memformat
+ContractFormatter ..> CollectorShipment : memformat
+ContractFormatter ..> UmkmProduct : memformat
+DummyBlockchainLedger ..> HarvestBatch : sinkronisasi
+Traceability ..> HarvestBatch : mencatat
+CodeGenerator ..> HarvestBatch : membuat kode
+CodeGenerator ..> CollectorShipment : membuat kode
+CodeGenerator ..> DistributorReceipt : membuat kode
+CodeGenerator ..> UmkmProduct : membuat kode
+CodeGenerator ..> UmkmOrder : membuat kode
+CodeGenerator ..> ConsumerTransaction : membuat kode
